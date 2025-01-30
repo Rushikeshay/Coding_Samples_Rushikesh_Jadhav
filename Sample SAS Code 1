@@ -1,0 +1,80 @@
+/* Define libraries */
+libname medicare_lib 'path';
+libname allowed_mue_lib 'path';
+libname resubmission_lib 'path';
+
+/* Step 1: Merge claim and allowed MUE datasets */
+data merged_data;
+  merge medicare_lib.medicare_claims (in=a) allowed_mue_lib.allowed_mue (in=b);
+  by hcpcs_code;
+  
+  /* Keep only records where MUE exceeds allowed MUE */
+  if a and b and a.mue > b.allowed_mue;
+run;
+
+/* Step 2: Calculate identified savings per claim */
+data claim_savings;
+  set merged_data;
+  by bene_id provider_id claim_number;
+  
+  /* Retain the sum across observations */
+  retain initial_mue_sum 0; 
+  
+  /* Reset for each new claim */
+  if first.claim_number then initial_mue_sum = 0; 
+  
+  /* Accumulate MUE */
+  initial_mue_sum + mue; 
+  
+  /* Calculate identified savings */
+  identified_savings = sum(allowed_mue);
+run;
+
+/* Step 3: Calculate potential resubmitted amount */
+data potential_resubmission;
+  merge claim_savings medicare_lib.medicare_claims (in=d rename=(claim_number=original_claim_number));
+  by bene_id provider_id claim_number;
+  
+  /* Check for later resubmission with payment */
+  if d and d.claim_paid_date > first_submittion_date and d.paid_amount > 0 then do;
+    resubmitted_amount = d.paid_amount;
+  end;
+  else do;
+    resubmitted_amount = .; /* Set to missing if conditions are not met */
+  end;
+run;
+
+/* Step 4: Calculate adjusted savings */
+data adjusted_savings;
+  merge claim_savings potential_resubmission;
+  by bene_id provider_id claim_number;
+  
+  /* Use coalesce to handle missing values */
+  adjusted_savings = identified_savings - coalesce(resubmitted_amount, 0);
+run;
+
+/* Step 5: Summarize savings by HCPCS code and quarter */
+proc sql;
+  create table hcpcs_savings (
+    hcpcs_code char(10) not null primary key,
+    quarter char(9) not null,
+    identified_savings numeric format=dollar9.2,
+    adjusted_savings numeric format=dollar9.2
+  );
+
+  insert into hcpcs_savings (hcpcs_code, quarter, identified_savings, adjusted_savings)
+  select hcpcs_code,
+         year(claim_action_date) || '-' || quarter(claim_action_date) as quarter,
+         sum(identified_savings) as identified_savings,
+         sum(adjusted_savings) as adjusted_savings
+  from adjusted_savings
+  group by hcpcs_code, year(claim_action_date) || '-' || quarter(claim_action_date);
+quit;
+
+/* Cleanup temporary datasets */
+proc datasets nolist;
+  delete medicare_lib.medicare_claims;
+  delete allowed_mue_lib.allowed_mue;
+  delete claim_savings;
+  delete adjusted_savings;
+run;
