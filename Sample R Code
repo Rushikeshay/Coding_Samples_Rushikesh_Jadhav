@@ -1,0 +1,108 @@
+# Load necessary libraries
+library(wooldridge)
+library(dplyr)
+library(tidyr)
+library(broom)
+library(knitr)
+library(ggplot2)
+
+# Load the dataset
+data("bwght2")
+
+# Summarize the 'cigs' variable
+cigs_summary <- bwght2 %>%
+  summarise(
+    total_obs = n(),
+    missing_cigs = sum(is.na(cigs)),
+    non_missing_cigs = sum(!is.na(cigs)),
+    percent_missing = mean(is.na(cigs)) * 100
+  )
+
+# Display summary of missingness in 'cigs'
+cigs_summary %>%
+  kable(
+    col.names = c("Total Observations", "Missing `cigs`", "Non-missing `cigs`", "Percent Missing"),
+    caption = "Summary of Missingness in `cigs`"
+  )
+
+# Check correlation of 'cigs' with other variables
+cor_matrix <- bwght2 %>%
+  select(cigs, mage, mblck, bwght) %>%
+  filter(complete.cases(.)) %>%
+  cor(method = "pearson")
+
+# Display correlation matrix
+cor_matrix %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Variable") %>%
+  kable(
+    col.names = c("Variable", "Cigs", "Mother's Age (Mage)", "Percent Black (Mblck)", "Birthweight (Bwght)"),
+    caption = "Correlation Matrix of `cigs` with Other Variables"
+  )
+
+# Create a dummy variable for smoker status
+Q3_data <- bwght2 %>%
+  mutate(smoker = ifelse(is.na(cigs) | cigs == 0, 0, 1))
+
+# Calculate summary statistics
+summary_stats <- Q3_data %>%
+  summarise(
+    mean_age = mean(mage, na.rm = TRUE),
+    median_age = median(mage, na.rm = TRUE),
+    percent_black = mean(mblck, na.rm = TRUE) * 100,
+    mean_birthweight = mean(bwght, na.rm = TRUE),
+    median_birthweight = median(bwght, na.rm = TRUE),
+    percent_smokers = mean(smoker, na.rm = TRUE) * 100
+  )
+
+# Reshape summary statistics for display
+summary_stats_long <- summary_stats %>%
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Value")
+
+# Display summary statistics
+kable(summary_stats_long, caption = "Q.3 (a) Summary Statistics")
+
+# Fit OLS models
+model1 <- lm(bwght ~ smoker + mage, data = Q3_data)
+model2 <- lm(bwght ~ smoker + mage + I(mage^2), data = Q3_data)  # Include age squared
+model3 <- lm(bwght ~ smoker + mage + I(mage^2) + mblck, data = Q3_data)
+
+# Create a summary table for all models
+results <- bind_rows(
+  tidy(model1) %>% mutate(Model = "Model 1: Age as Control"),
+  tidy(model2) %>% mutate(Model = "Model 2: Age and Age Squared"),
+  tidy(model3) %>% mutate(Model = "Model 3: Fully Saturated")
+)
+
+results_table <- results %>%
+  select(Model, term, estimate, std.error, statistic, p.value) %>%
+  mutate(
+    p.value = ifelse(p.value < 0.001, "< 0.001", round(p.value, 3)),
+    significance = case_when(
+      p.value == "< 0.001" ~ "***",
+      p.value < 0.05 ~ "**",
+      p.value < 0.1 ~ "*",
+      TRUE ~ ""
+    )
+  )
+
+# Display OLS regression results
+kable(results_table, caption = "Q.3 (b) OLS Regression Results", digits = 3)
+
+# Calculate the conditional probability (p_hat) of smoking by age
+Q3_data <- Q3_data %>%
+  group_by(mage) %>%
+  mutate(p_hat = mean(smoker, na.rm = TRUE)) %>%
+  ungroup()
+
+# Assign IPW weights
+Q3_data <- Q3_data %>%
+  mutate(
+    weight_treated = ifelse(smoker == 1, 1 / p_hat, 0),
+    weight_untreated = ifelse(smoker == 0, 1 / (1 - p_hat), 0),
+    ipw_weight = weight_treated + weight_untreated
+  )
+
+# Weighted Regression Models
+model1_weighted <- lm(bwght ~ smoker, weights = ipw_weight, data = Q3_data)
+model2
