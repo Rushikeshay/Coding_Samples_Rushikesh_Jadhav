@@ -18,23 +18,18 @@ suppressPackageStartupMessages({
   library(knitr)
   library(car)
   library(ggplot2)
+  library(readxl)
 })
 
 
 ## ------------------------------------------------------------------------------------------------------
 setwd("C:/Users/rushi/OneDrive - The University of Chicago/Spring 2025-Jadhav-DellXPS-13/Adv. Program Eval/PS 4")
-
-library(readxl)
 file_path <- "tables_1_5_comb.xlsx"
 lopez_df <- read_excel(file_path, sheet = "Indicators_only")
 
-
 ## ------------------------------------------------------------------------------------------------------
 # Changing the indicators names to separate I-1 to I-22 from table 5. I am appending 
-# .5 to I-1 to I-22 for table 5 indicators to separate them. 
-# I used ChatGPT to write the following code. I asked "How to edit the values in 
-# a variable starting a certain row by adding the same text.". ChatGPT taught me 
-# how to use sub function.
+# .5 to I-1 to I-22 for table 5 indicators to separate them.  
 
 lopez_df$Indicators[44:nrow(lopez_df)] <- sub(
   pattern = "^I-(\\d+)\\.", 
@@ -42,9 +37,8 @@ lopez_df$Indicators[44:nrow(lopez_df)] <- sub(
   x = lopez_df$Indicators[44:nrow(lopez_df)]
 )
 
-
 ## ------------------------------------------------------------------------------------------------------
-# I realized I left a typo, correcting it
+# Correcting a typo in the data
 lopez_df$Indicators[2] <- "I-2. Psychological Violence"
 
 # Checking data types 
@@ -53,9 +47,7 @@ str(lopez_df)
 # Renaming x^2 to x2
 names(lopez_df)[names(lopez_df) == "x^2"] <- "x2"
 
-# Clean data, convert to appropriate data type. I aksed chatgpt "how to convert 
-# multiple columns to numeric and remove unwanted signs like "," and " " at ones. 
-# It gave me similar function to that below. 
+# Clean data, convert to appropriate data type. 
 
 numeric_cols <- c("x2", "Present", "Absent", "N/S", "% Valid")
 lopez_df[numeric_cols] <- lapply(lopez_df[numeric_cols], function(col) {
@@ -75,7 +67,6 @@ significant_df <- lopez_df[lopez_df$significant_5pct == TRUE,
                            c("Indicators", "x2", "p_value")]
 kable(significant_df, caption = "Significant Predictors at the 5% Level", digits = 4)
 
-
 ## ------------------------------------------------------------------------------------------------------
 # Histogram of p-values
 ggplot(lopez_df, aes(x = p_value)) +
@@ -84,8 +75,6 @@ ggplot(lopez_df, aes(x = p_value)) +
        x = "P-value",
        y = "Count") +
   theme_minimal()
-
-
 
 ## ------------------------------------------------------------------------------------------------------
 # Number of tests 
@@ -130,7 +119,6 @@ lopez_df$p_bonf_manual <- pmin(1, lopez_df$p_value * m)
 # Confirming it's the smae as p.adjust
 lopez_df$significant_bonf_manual <- lopez_df$p_bonf_manual < 0.05
 sum(lopez_df$significant_bonf_manual)  
-
 
 ## ------------------------------------------------------------------------------------------------------
 # Number of tests 
@@ -181,7 +169,6 @@ ggplot(lopez_df_sorted, aes(x = rank)) +
   theme_minimal() +
   theme(legend.position = "bottom")
 
-
 ## ------------------------------------------------------------------------------------------------------
 m <- nrow(lopez_df)
 lopez_df$p_rank <- rank(lopez_df$p_value, ties.method = "min")
@@ -192,7 +179,6 @@ lopez_df$prob_false_discovery <- pmin(1, lopez_df$p_value * m / lopez_df$p_rank)
 kable(lopez_df[, c("Indicators", "p_value", "p_rank", "prob_false_discovery")],
       caption = "Estimated Probability Each Test is a False Discovery (Q6)",
       digits = 4)
-
 
 ## ------------------------------------------------------------------------------------------------------
 # flaging for BH
